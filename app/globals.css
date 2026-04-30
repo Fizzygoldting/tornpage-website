@@ -1,0 +1,354 @@
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+.site-body {
+  background: #0f0f13;
+  color: #f4f4f5;
+  transition:
+    background-color 480ms ease,
+    background-image 480ms ease;
+}
+
+.paper-stage {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  background-color: #111014;
+  background-image:
+    radial-gradient(circle at 15% 20%, rgba(255, 180, 80, 0.12), transparent 40%),
+    radial-gradient(circle at 80% 10%, rgba(255, 120, 70, 0.08), transparent 32%),
+    linear-gradient(120deg, rgba(255, 255, 255, 0.035) 0%, transparent 35%),
+    repeating-linear-gradient(
+      45deg,
+      rgba(255, 255, 255, 0.018) 0px,
+      rgba(255, 255, 255, 0.018) 1px,
+      transparent 1px,
+      transparent 6px
+    );
+}
+
+.paper-stage::before,
+.paper-stage::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: -1;
+  transition: opacity 520ms ease;
+}
+
+.paper-stage::before {
+  opacity: 1;
+  background-color: #111014;
+  background-image:
+    radial-gradient(circle at 15% 20%, rgba(255, 180, 80, 0.12), transparent 40%),
+    radial-gradient(circle at 80% 10%, rgba(255, 120, 70, 0.08), transparent 32%),
+    linear-gradient(120deg, rgba(255, 255, 255, 0.035) 0%, transparent 35%),
+    repeating-linear-gradient(
+      45deg,
+      rgba(255, 255, 255, 0.018) 0px,
+      rgba(255, 255, 255, 0.018) 1px,
+      transparent 1px,
+      transparent 6px
+    );
+}
+
+.paper-stage::after {
+  opacity: 0;
+  background-color: #f4ecd9;
+  background-image:
+    radial-gradient(circle at 14% 18%, rgba(255, 255, 255, 0.78), transparent 42%),
+    radial-gradient(circle at 82% 10%, rgba(205, 166, 111, 0.2), transparent 34%),
+    linear-gradient(120deg, rgba(255, 255, 255, 0.24) 0%, transparent 38%),
+    repeating-linear-gradient(
+      45deg,
+      rgba(120, 90, 50, 0.04) 0px,
+      rgba(120, 90, 50, 0.04) 1px,
+      transparent 1px,
+      transparent 8px
+    );
+}
+
+@media (prefers-color-scheme: light) {
+  .paper-stage {
+    background-color: #f4ecd9;
+    background-image:
+      radial-gradient(circle at 14% 18%, rgba(255, 255, 255, 0.78), transparent 42%),
+      radial-gradient(circle at 82% 10%, rgba(205, 166, 111, 0.2), transparent 34%),
+      linear-gradient(120deg, rgba(255, 255, 255, 0.24) 0%, transparent 38%),
+      repeating-linear-gradient(
+        45deg,
+        rgba(120, 90, 50, 0.04) 0px,
+        rgba(120, 90, 50, 0.04) 1px,
+        transparent 1px,
+        transparent 8px
+      );
+  }
+}
+
+@media (prefers-color-scheme: light) {
+  .site-body {
+    background: #f6f0e2;
+    color: #2f2616;
+  }
+}
+
+html[data-theme="dark"] .site-body {
+  background: #0f0f13;
+  color: #f4f4f5;
+}
+
+html[data-theme="light"] .site-body {
+  background: #f6f0e2;
+  color: #2f2616;
+}
+
+html[data-theme="dark"] .paper-stage {
+  background-image: none;
+}
+
+html[data-theme="light"] .paper-stage {
+  background-image: none;
+}
+
+html[data-theme="dark"] .paper-stage::before {
+  opacity: 1;
+}
+
+html[data-theme="dark"] .paper-stage::after {
+  opacity: 0;
+}
+
+html[data-theme="light"] .paper-stage::before {
+  opacity: 0;
+}
+
+html[data-theme="light"] .paper-stage::after {
+  opacity: 1;
+}
+
+.torn-paper {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid rgba(80, 58, 30, 0.28);
+  background:
+    radial-gradient(circle at 18% 16%, rgba(255, 255, 255, 0.92), transparent 38%),
+    radial-gradient(circle at 78% 72%, rgba(120, 93, 52, 0.1), transparent 42%),
+    linear-gradient(165deg, #fffdf7 0%, #f8f3e4 42%, #efe5cd 100%);
+  color: #2a2214;
+  box-shadow:
+    0 24px 38px rgba(0, 0, 0, 0.45),
+    0 8px 12px rgba(0, 0, 0, 0.25),
+    inset 0 0 0 1px rgba(120, 90, 50, 0.2);
+  clip-path: polygon(
+    1.5% 2.5%,
+    8% 1%,
+    16% 2.8%,
+    24% 1.4%,
+    33% 3.2%,
+    41% 1.6%,
+    49% 2.9%,
+    57% 1.2%,
+    65% 3%,
+    73% 1.8%,
+    81% 2.7%,
+    90% 1.4%,
+    97.5% 3%,
+    98.5% 10%,
+    97% 18%,
+    98.8% 26%,
+    96.8% 34%,
+    98.4% 43%,
+    96.6% 51%,
+    98.6% 60%,
+    97% 69%,
+    98.5% 78%,
+    96.9% 86%,
+    98.2% 94%,
+    93% 98.3%,
+    84% 96.7%,
+    76% 98.6%,
+    67% 96.8%,
+    58% 98.4%,
+    50% 96.8%,
+    42% 98.3%,
+    34% 96.6%,
+    25% 98.5%,
+    17% 96.8%,
+    9% 98.2%,
+    2% 96%,
+    1.2% 88%,
+    2.8% 80%,
+    1% 72%,
+    3% 64%,
+    1.1% 56%,
+    2.6% 48%,
+    1% 40%,
+    2.9% 32%,
+    1.3% 24%,
+    3% 16%,
+    1.5% 8%
+  );
+}
+
+.torn-paper::before,
+.torn-paper::after {
+  content: "";
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+}
+
+.torn-paper::before {
+  background:
+    repeating-linear-gradient(
+      22deg,
+      rgba(65, 50, 26, 0.06) 0px,
+      rgba(65, 50, 26, 0.06) 1px,
+      transparent 1px,
+      transparent 8px
+    ),
+    repeating-linear-gradient(
+      -27deg,
+      rgba(255, 255, 255, 0.15) 0px,
+      rgba(255, 255, 255, 0.15) 1px,
+      transparent 1px,
+      transparent 10px
+    );
+  mix-blend-mode: multiply;
+  opacity: 0.42;
+}
+
+.torn-paper::after {
+  background:
+    radial-gradient(circle at 24% 26%, rgba(88, 66, 32, 0.2) 0 14%, transparent 36%),
+    radial-gradient(circle at 72% 68%, rgba(255, 255, 255, 0.3) 0 12%, transparent 38%),
+    radial-gradient(circle at 50% 50%, rgba(0, 0, 0, 0.08) 0 1px, transparent 2px);
+  background-size: 140% 140%, 150% 150%, 9px 9px;
+  opacity: 0.25;
+}
+
+.torn-paper h1,
+.torn-paper h2,
+.torn-paper h3,
+.torn-paper p {
+  color: inherit;
+  position: relative;
+  z-index: 1;
+}
+
+.torn-tilt-left {
+  transform: rotate(-0.8deg);
+}
+
+.torn-tilt-right {
+  transform: rotate(0.8deg);
+}
+
+@keyframes manga-reader-page-in {
+  from {
+    opacity: 0.2;
+    transform: translateX(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.manga-reader-page-in {
+  animation: manga-reader-page-in 0.22s ease-out;
+}
+
+@keyframes theme-toggle-bounce {
+  0% {
+    transform: scale(1);
+  }
+  30% {
+    transform: scale(0.9);
+  }
+  60% {
+    transform: scale(1.08);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.theme-toggle-bounce {
+  animation: theme-toggle-bounce 280ms ease-out;
+}
+
+@keyframes comments-panel-bounce {
+  0% {
+    opacity: 0;
+    transform: translateY(10px) scale(0.96);
+  }
+  55% {
+    opacity: 1;
+    transform: translateY(-4px) scale(1.015);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.comments-panel-bounce {
+  animation: comments-panel-bounce 320ms ease-out;
+}
+
+@keyframes reader-book-page-flip {
+  0% {
+    transform: rotate(-14deg) scale(0.98);
+  }
+  40% {
+    transform: rotate(6deg) scale(1.1);
+  }
+  70% {
+    transform: rotate(-2deg) scale(1.04);
+  }
+  100% {
+    transform: rotate(0deg) scale(1);
+  }
+}
+
+.reader-book-page-flip {
+  animation: reader-book-page-flip 340ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.manga-quote {
+  font-family: var(--font-geist-mono), "Arial Black", sans-serif;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  line-height: 1.35;
+  text-shadow:
+    1px 1px 0 rgba(45, 26, 9, 0.35),
+    0 0 14px rgba(252, 211, 77, 0.22);
+}
+

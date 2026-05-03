@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type WheelEvent } from "react";
+import Link from "next/link";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type WheelEvent,
+} from "react";
 import {
   MANGA_BRUSH_CONFIG,
   MANGA_BRUSH_ORDER,
@@ -12,6 +19,12 @@ import {
   PanelTemplateGuideGroup,
   type PanelTemplateId,
 } from "./panelTemplates";
+import {
+  deleteMangaDraft,
+  listDraftsForUser,
+  readSessionUsername,
+  saveMangaDraft,
+} from "@/lib/mangaDraftStorage";
 import {
   MANGA_B4_TRIM_MM,
   MANGA_LIVE_AREA_MM,
@@ -70,6 +83,8 @@ export function MangaStudio({
   const studioRootRef = useRef<HTMLDivElement>(null);
   const outerRef = useRef<HTMLDivElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
+  /** Custom crosshair (pen/tablet often hides the OS cursor after capture). */
+  const brushHairRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const drawing = useRef(false);
   const last = useRef<Point | null>(null);
@@ -87,6 +102,14 @@ export function MangaStudio({
   const [redoDepth, setRedoDepth] = useState(0);
   const [pages, setPages] = useState<string[]>([""]);
   const [currentPage, setCurrentPage] = useState(0);
+  const [activeDraftId, setActiveDraftId] = useState<string | null>(null);
+  const [draftTitleInput, setDraftTitleInput] = useState("");
+  const [accountUsername, setAccountUsername] = useState<string | null>(null);
+  const [draftAccountTick, setDraftAccountTick] = useState(0);
+  const [draftToast, setDraftToast] = useState<{
+    kind: "ok" | "err";
+    msg: string;
+  } | null>(null);
   /** Undo/redo stacks keyed by page index so Ctrl+Z works after switching back. */
   const pageHistoryStore = useRef<
     Record<number, { undo: ImageData[]; redo: ImageData[] }>
@@ -98,6 +121,27 @@ export function MangaStudio({
     redoHistory.current = [];
     setHistoryDepth(0);
     setRedoDepth(0);
+  }, []);
+
+  const positionBrushHair = useCallback((clientX: number, clientY: number) => {
+    const wrap = wrapRef.current;
+    const hair = brushHairRef.current;
+    if (!wrap || !hair) return;
+    const r = wrap.getBoundingClientRect();
+    const x = clientX - r.left;
+    const y = clientY - r.top;
+    if (x < -4 || y < -4 || x > r.width + 4 || y > r.height + 4) {
+      hair.style.visibility = "hidden";
+      return;
+    }
+    hair.style.visibility = "visible";
+    hair.style.left = `${x}px`;
+    hair.style.top = `${y}px`;
+  }, []);
+
+  const hideBrushHair = useCallback(() => {
+    const hair = brushHairRef.current;
+    if (hair) hair.style.visibility = "hidden";
   }, []);
 
   const fillBlankPage = useCallback(() => {
@@ -302,6 +346,19 @@ export function MangaStudio({
   }, [currentPage, loadPageData, pages]);
 
   useEffect(() => {
+    const blockSelectWhileDrawing = (e: Event) => {
+      if (drawing.current) e.preventDefault();
+    };
+    document.addEventListener("selectstart", blockSelectWhileDrawing, {
+      capture: true,
+    });
+    return () =>
+      document.removeEventListener("selectstart", blockSelectWhileDrawing, {
+        capture: true,
+      });
+  }, []);
+
+  useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       const isTypingField =
@@ -408,6 +465,154 @@ export function MangaStudio({
     });
   };
 
+  useEffect(() => {
+    const sync = () => setAccountUsername(readSessionUsername());
+    sync();
+    window.addEventListener("focus", sync);
+    window.addEventListener("storage", sync);
+    return () => {
+      window.removeEventListener("focus", sync);
+      window.removeEventListener("storage", sync);
+    };
+  }, [draftAccountTick]);
+
+  useEffect(() => {
+    if (!draftToast) return;
+    const t = window.setTimeout(() => setDraftToast(null), 4200);
+    return () => window.clearTimeout(t);
+  }, [draftToast]);
+
+  const buildPagesSnapshot = useCallback((): string[] => {
+    const canvas = canvasRef.current;
+    const snap = [...pages];
+    if (canvas && canvas.width > 0 && canvas.height > 0) {
+      try {
+        snap[currentPage] = canvas.toDataURL("image/png");
+      } catch {
+        /* keep cell */
+      }
+    }
+    return snap.length ? snap : [""];
+  }, [pages, currentPage]);
+
+  const saveDraftToAccount = useCallback(() => {
+    const u = readSessionUsername();
+    if (!u) {
+      setDraftToast({
+        kind: "err",
+        msg: "Sign in first to save drafts on this device.",
+      });
+      return;
+    }
+    const snap = buildPagesSnapshot();
+    const r = saveMangaDraft({
+      username: u,
+      id: activeDraftId,
+      nameInput: draftTitleInput,
+      pages: snap,
+    });
+    if (!r.ok) {
+      setDraftToast({ kind: "err", msg: r.error });
+      return;
+    }
+    const wasUpdate = !!activeDraftId;
+    pageHistoryStore.current = {};
+    prevPageIndexRef.current = -1;
+    setActiveDraftId(r.draft.id);
+    setDraftTitleInput(r.draft.name);
+    setPages(r.draft.pages);
+    setCurrentPage((c) =>
+      Math.min(c, Math.max(0, r.draft.pages.length - 1)),
+    );
+    setDraftAccountTick((x) => x + 1);
+    setDraftToast({
+      kind: "ok",
+      msg: wasUpdate
+        ? "Draft updated in your account."
+        : "Draft saved to your account.",
+    });
+  }, [activeDraftId, buildPagesSnapshot, draftTitleInput]);
+
+  const loadDraftById = useCallback((id: string) => {
+    const u = readSessionUsername();
+    if (!u) return;
+    const d = listDraftsForUser(u).find((x) => x.id === id);
+    if (!d) return;
+    pageHistoryStore.current = {};
+    prevPageIndexRef.current = -1;
+    setActiveDraftId(d.id);
+    setDraftTitleInput(d.name);
+    setPages(d.pages.length ? [...d.pages] : [""]);
+    setCurrentPage(0);
+    setDraftToast({ kind: "ok", msg: `Opened “${d.name}”.` });
+  }, []);
+
+  const deleteDraftById = useCallback(
+    (id: string) => {
+      const u = readSessionUsername();
+      if (!u) return;
+      if (!window.confirm("Delete this draft from your account on this device?"))
+        return;
+      deleteMangaDraft(u, id);
+      if (activeDraftId === id) {
+        setActiveDraftId(null);
+        setDraftTitleInput("");
+      }
+      setDraftAccountTick((x) => x + 1);
+      setDraftToast({ kind: "ok", msg: "Draft removed." });
+    },
+    [activeDraftId],
+  );
+
+  const saveNewDraftCopy = useCallback(() => {
+    const u = readSessionUsername();
+    if (!u) {
+      setDraftToast({
+        kind: "err",
+        msg: "Sign in first to save drafts on this device.",
+      });
+      return;
+    }
+    const snap = buildPagesSnapshot();
+    const r = saveMangaDraft({
+      username: u,
+      nameInput: draftTitleInput,
+      pages: snap,
+    });
+    if (!r.ok) {
+      setDraftToast({ kind: "err", msg: r.error });
+      return;
+    }
+    pageHistoryStore.current = {};
+    prevPageIndexRef.current = -1;
+    setActiveDraftId(r.draft.id);
+    setDraftTitleInput(r.draft.name);
+    setPages(r.draft.pages);
+    setCurrentPage((c) =>
+      Math.min(c, Math.max(0, r.draft.pages.length - 1)),
+    );
+    setDraftAccountTick((x) => x + 1);
+    setDraftToast({ kind: "ok", msg: "Saved as a new draft." });
+  }, [buildPagesSnapshot, draftTitleInput]);
+
+  const startNewBlankDraft = useCallback(() => {
+    if (
+      !window.confirm(
+        "Start a new blank draft? Save first if you need this work—canvas will reset.",
+      )
+    ) {
+      return;
+    }
+    pageHistoryStore.current = {};
+    prevPageIndexRef.current = -1;
+    setActiveDraftId(null);
+    setDraftTitleInput("");
+    setPages([""]);
+    setCurrentPage(0);
+    resetHistory();
+    setDraftAccountTick((x) => x + 1);
+  }, [resetHistory]);
+
   const handleStageWheel = useCallback((e: WheelEvent) => {
     if (!e.ctrlKey && !e.metaKey) return;
     e.preventDefault();
@@ -418,6 +623,132 @@ export function MangaStudio({
     });
   }, []);
 
+  const myDrafts = accountUsername
+    ? listDraftsForUser(accountUsername)
+    : [];
+
+  function renderAccountDrafts(compact: boolean) {
+    const t = compact ? "text-[10px]" : "text-xs";
+    const btn = compact
+      ? "rounded border border-zinc-600 px-2 py-1 text-[11px]"
+      : "rounded-md border border-zinc-600 px-3 py-1.5 text-xs";
+    if (!accountUsername) {
+      return (
+        <div className={compact ? "mt-2 space-y-2 border-t border-zinc-800 pt-3" : "mt-4 space-y-2 border-t border-zinc-600/40 pt-4"}>
+          <p className={`${t} text-zinc-500`}>
+            Sign in to save manga drafts on this browser (linked to your display
+            name).
+          </p>
+          <Link
+            href="/signup"
+            className="inline-block text-[11px] font-medium text-amber-400 hover:text-amber-300"
+          >
+            Create account
+          </Link>
+        </div>
+      );
+    }
+    return (
+      <div
+        className={
+          compact
+            ? "mt-2 space-y-3 border-t border-zinc-800 pt-3"
+            : "mt-4 space-y-3 border-t border-zinc-600/40 pt-4"
+        }
+      >
+        <p className={`${t} font-semibold uppercase tracking-wide text-zinc-500`}>
+          Account drafts
+        </p>
+        <label className={`flex flex-col gap-1 ${t} text-zinc-400`}>
+          <span className="text-zinc-500">Title (optional)</span>
+          <input
+            type="text"
+            value={draftTitleInput}
+            onChange={(e) => setDraftTitleInput(e.target.value)}
+            placeholder={
+              activeDraftId ? "Rename or leave as-is" : "Leave blank for Draft, Draft 1…"
+            }
+            className="rounded border border-zinc-600 bg-zinc-950 px-2 py-1.5 text-sm text-zinc-100 placeholder:text-zinc-600"
+          />
+        </label>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={saveDraftToAccount}
+            className={`${btn} border-amber-500/50 bg-amber-500/20 font-medium text-amber-100 hover:bg-amber-500/30`}
+          >
+            {activeDraftId ? "Save" : "Save draft"}
+          </button>
+          {activeDraftId ? (
+            <button
+              type="button"
+              onClick={saveNewDraftCopy}
+              className={`${btn} text-zinc-200 hover:bg-zinc-800`}
+            >
+              Save as new
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={startNewBlankDraft}
+            className={`${btn} text-zinc-400 hover:bg-zinc-800`}
+          >
+            New blank
+          </button>
+        </div>
+        {draftToast ? (
+          <p
+            className={`${t} ${draftToast.kind === "ok" ? "text-emerald-400/90" : "text-red-400/90"}`}
+          >
+            {draftToast.msg}
+          </p>
+        ) : null}
+        <label className={`flex flex-col gap-1 ${t} text-zinc-400`}>
+          <span className="text-zinc-500">Open a saved draft</span>
+          <select
+            className="rounded border border-zinc-600 bg-zinc-950 px-2 py-2 text-sm text-zinc-100"
+            value=""
+            onChange={(e) => {
+              const id = e.target.value;
+              e.target.value = "";
+              if (id) loadDraftById(id);
+            }}
+          >
+            <option value="">Choose…</option>
+            {myDrafts.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.name} ({d.pages.length} pg)
+              </option>
+            ))}
+          </select>
+        </label>
+        {myDrafts.length ? (
+          <ul
+            className={`max-h-40 space-y-1 overflow-y-auto ${compact ? "text-[11px]" : "text-xs"} text-zinc-400`}
+          >
+            {myDrafts.map((d) => (
+              <li
+                key={d.id}
+                className="flex items-center justify-between gap-2 rounded border border-zinc-800/80 bg-zinc-950/50 px-2 py-1"
+              >
+                <span className="min-w-0 truncate text-zinc-300">{d.name}</span>
+                <button
+                  type="button"
+                  onClick={() => deleteDraftById(d.id)}
+                  className="shrink-0 text-red-400/90 hover:underline"
+                >
+                  Delete
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className={`${t} text-zinc-600`}>No drafts yet for {accountUsername}.</p>
+        )}
+      </div>
+    );
+  }
+
   const presetMeta = MANGA_BRUSH_CONFIG[brushPreset];
   const nextPageData = pages[currentPage + 1] ?? "";
   const displayW = MANGA_PAGE_PIXEL_WIDTH * zoom;
@@ -425,27 +756,40 @@ export function MangaStudio({
 
   const canvasRow = (
     <div
-      className={`mx-auto flex w-fit min-w-min items-start justify-start gap-5 ${twoPageView ? "lg:gap-8" : ""}`}
+      className={`mx-auto flex w-fit min-w-min select-none items-start justify-start gap-5 ${twoPageView ? "lg:gap-8" : ""}`}
     >
-      <div ref={outerRef} className="flex w-full justify-center">
+      <div ref={outerRef} className="flex w-full justify-center select-none">
         <div
           ref={wrapRef}
-          className="relative overflow-hidden rounded-lg border border-zinc-400/70 bg-white shadow-2xl shadow-black/50"
+          className="relative cursor-none overflow-hidden rounded-lg border border-zinc-400/70 bg-white shadow-2xl shadow-black/50 select-none"
+          onPointerEnter={(e) => positionBrushHair(e.clientX, e.clientY)}
+          onPointerMove={(e) => positionBrushHair(e.clientX, e.clientY)}
+          onPointerLeave={hideBrushHair}
         >
           <canvas
             ref={canvasRef}
-            className="block h-full w-full touch-none cursor-crosshair"
+            className="block h-full w-full cursor-none touch-none select-none"
             onPointerDown={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              positionBrushHair(e.clientX, e.clientY);
               e.currentTarget.setPointerCapture(e.pointerId);
               start(getPoint(e.currentTarget, e.clientX, e.clientY));
             }}
             onPointerMove={(e) => {
+              positionBrushHair(e.clientX, e.clientY);
+              if (drawing.current) e.preventDefault();
               if (!drawing.current) return;
               move(getPoint(e.currentTarget, e.clientX, e.clientY));
             }}
-            onPointerUp={end}
+            onPointerUp={(e) => {
+              e.preventDefault();
+              end();
+            }}
             onPointerLeave={end}
             onPointerCancel={end}
+            onDragStart={(e) => e.preventDefault()}
+            onContextMenu={(e) => e.preventDefault()}
           />
           <svg
             className="pointer-events-none absolute inset-0 z-10 h-full w-full"
@@ -474,6 +818,17 @@ export function MangaStudio({
             />
             <PanelTemplateGuideGroup templateId={panelTemplate} />
           </svg>
+          <div
+            ref={brushHairRef}
+            className="pointer-events-none absolute z-20 -translate-x-1/2 -translate-y-1/2"
+            style={{ left: 0, top: 0, visibility: "hidden" }}
+            aria-hidden
+          >
+            <div className="relative h-5 w-5">
+              <div className="absolute left-1/2 top-1/2 h-5 w-px -translate-x-1/2 -translate-y-1/2 bg-zinc-800 shadow-[0_0_0_1px_rgba(255,255,255,0.85)]" />
+              <div className="absolute left-1/2 top-1/2 h-px w-5 -translate-x-1/2 -translate-y-1/2 bg-zinc-800 shadow-[0_0_0_1px_rgba(255,255,255,0.85)]" />
+            </div>
+          </div>
         </div>
       </div>
       {twoPageView ? (
@@ -489,7 +844,8 @@ export function MangaStudio({
             <img
               src={nextPageData}
               alt={`Page ${currentPage + 2} preview`}
-              className="h-full w-full object-contain"
+              draggable={false}
+              className="h-full w-full select-none object-contain"
             />
           ) : (
             <div className="flex h-full w-full items-center justify-center px-6 text-center text-sm text-zinc-400">
@@ -503,7 +859,7 @@ export function MangaStudio({
 
   if (immersive) {
     return (
-      <div className="flex h-full min-h-0 flex-col bg-[#1a1a1d] text-zinc-100">
+      <div className="flex h-full min-h-0 flex-col bg-[#1a1a1d] text-zinc-100 select-none">
         <header className="flex shrink-0 flex-wrap items-center gap-2 border-b border-zinc-800 bg-zinc-900/95 px-3 py-2 shadow-sm shadow-black/40">
           <div className="flex flex-wrap items-center gap-2 rounded-lg border border-zinc-700/80 bg-zinc-950/80 px-2 py-1">
             <button
@@ -574,7 +930,7 @@ export function MangaStudio({
         </header>
 
         <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-          <aside className="flex shrink-0 flex-col gap-4 overflow-y-auto border-zinc-800 p-3 lg:w-56 lg:border-r">
+          <aside className="flex shrink-0 select-text flex-col gap-4 overflow-y-auto border-zinc-800 p-3 lg:w-56 lg:border-r">
             <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
               Tools
             </p>
@@ -685,11 +1041,12 @@ export function MangaStudio({
                 Scroll to pan. Ctrl/⌘+scroll to zoom.
               </p>
             </div>
+            {renderAccountDrafts(true)}
           </aside>
 
           <div className="flex min-h-0 min-w-0 flex-1 flex-col p-2 lg:p-3">
             <div
-              className="min-h-0 flex-1 overflow-auto overscroll-contain rounded-lg border border-zinc-700/60 bg-zinc-950/50 p-3"
+              className="min-h-0 flex-1 select-none overflow-auto overscroll-contain rounded-lg border border-zinc-700/60 bg-zinc-950/50 p-3"
               onWheel={handleStageWheel}
             >
               {canvasRow}
@@ -707,9 +1064,9 @@ export function MangaStudio({
   return (
     <div
       ref={studioRootRef}
-      className="space-y-4 [&:fullscreen]:box-border [&:fullscreen]:h-dvh [&:fullscreen]:max-h-dvh [&:fullscreen]:overflow-y-auto [&:fullscreen]:overflow-x-hidden [&:fullscreen]:overscroll-y-contain [&:fullscreen]:bg-gradient-to-b [&:fullscreen]:from-zinc-950 [&:fullscreen]:via-zinc-900 [&:fullscreen]:to-zinc-950 [&:fullscreen]:p-4 [&:fullscreen]:pb-6"
+      className="select-none space-y-4 [&:fullscreen]:box-border [&:fullscreen]:h-dvh [&:fullscreen]:max-h-dvh [&:fullscreen]:overflow-y-auto [&:fullscreen]:overflow-x-hidden [&:fullscreen]:overscroll-y-contain [&:fullscreen]:bg-gradient-to-b [&:fullscreen]:from-zinc-950 [&:fullscreen]:via-zinc-900 [&:fullscreen]:to-zinc-950 [&:fullscreen]:p-4 [&:fullscreen]:pb-6"
     >
-      <div className="flex flex-col gap-3 rounded-xl border border-zinc-600/50 bg-zinc-800/85 p-4 shadow-lg shadow-black/25">
+      <div className="flex select-text flex-col gap-3 rounded-xl border border-zinc-600/50 bg-zinc-800/85 p-4 shadow-lg shadow-black/25">
         <div className="flex flex-wrap items-center gap-3">
         <div className="mr-1 flex items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-950/70 px-2 py-1">
           <button
@@ -870,9 +1227,10 @@ export function MangaStudio({
             only—your exported PNG is still just the drawing.
           </p>
         </div>
+        {renderAccountDrafts(false)}
       </div>
 
-      <div className="flex flex-wrap items-center gap-3 rounded-xl border border-zinc-600/40 bg-zinc-900/60 px-4 py-3">
+      <div className="flex select-text flex-wrap items-center gap-3 rounded-xl border border-zinc-600/40 bg-zinc-900/60 px-4 py-3">
         <span className="text-xs font-medium uppercase tracking-wide text-zinc-500">
           View zoom
         </span>
@@ -903,13 +1261,13 @@ export function MangaStudio({
 
       <div className="rounded-2xl bg-zinc-800/50 p-5 ring-1 ring-zinc-600/30 sm:p-8">
         <div
-          className="max-h-[min(88dvh,920px)] w-full overflow-auto overscroll-contain rounded-xl border border-zinc-700/50 bg-zinc-950/30 p-4 sm:p-6"
+          className="max-h-[min(88dvh,920px)] w-full select-none overflow-auto overscroll-contain rounded-xl border border-zinc-700/50 bg-zinc-950/30 p-4 sm:p-6"
           onWheel={handleStageWheel}
         >
           {canvasRow}
         </div>
       </div>
-      <p className="text-xs text-zinc-500">
+      <p className="select-text text-xs text-zinc-500">
         Pixel sheet: {MANGA_PAGE_PIXEL_WIDTH}×{MANGA_PAGE_PIXEL_HEIGHT} (same
         proportions as B4 trim {MANGA_B4_TRIM_MM.width}×{MANGA_B4_TRIM_MM.height}{" "}
         mm). Dashed overlay ≈ live area ({MANGA_LIVE_AREA_MM.width}×

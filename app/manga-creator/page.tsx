@@ -9,7 +9,8 @@ export default function MangaCreatorPage() {
           <p className="mt-2 max-w-2xl text-zinc-300">
             Each page is a fixed high-resolution pixel sheet (3840px wide, B4
             proportions). Open the fullscreen studio for a paint-style workspace;
-            guides and exports work the same.
+            guides and exports work the same. Signed-in users can save named
+            drafts in the browser (same device as your account).
           </p>
         </div>
 

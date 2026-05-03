@@ -135,8 +135,8 @@ export function MangaCreatorClient({ gateAside }: { gateAside: ReactNode }) {
           ref={shellRef}
           className={
             fsActive
-              ? "fixed inset-0 z-[200] flex min-h-0 flex-col bg-[#161618]"
-              : "pointer-events-none invisible fixed inset-0 z-[200] flex min-h-0 flex-col opacity-0"
+              ? "fixed inset-0 z-[200] flex min-h-0 flex-col bg-[#161618] select-none"
+              : "pointer-events-none invisible fixed inset-0 z-[200] flex min-h-0 flex-col select-none opacity-0"
           }
           aria-hidden={!fsActive}
         >

@@ -9,10 +9,10 @@ export default function MangaCreatorPage() {
         <div>
           <h1 className="text-4xl font-bold text-amber-300">Manga creator</h1>
           <p className="mt-2 max-w-2xl text-zinc-300">
-            Each page uses B4-style proportions (about 220×310 mm trim) with a
-            dashed live area (~180×270 mm)—typical for professional drafts before
-            book-size printing (often B5/B6). Sketch here and use the tutorial
-            on the left as loose guides.
+            Each page is a fixed high-resolution pixel sheet (3840px wide, B4
+            proportions) with the same dashed live-area guides in millimeters.
+            Zoom and scroll the stage to work in detail; exports are full-size
+            PNGs. Use the tutorial on the left as loose guides.
           </p>
         </div>
         <Link

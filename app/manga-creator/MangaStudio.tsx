@@ -15,8 +15,13 @@ import {
 import {
   MANGA_B4_TRIM_MM,
   MANGA_LIVE_AREA_MM,
-  MANGA_PAGE_ASPECT,
+  MANGA_PAGE_PIXEL_HEIGHT,
+  MANGA_PAGE_PIXEL_WIDTH,
+  MANGA_PX_PER_MM,
 } from "./mangaPageDimensions";
+
+/** Full ImageData undo steps at 4K are large; keep a small cap to avoid OOM. */
+const MAX_CANVAS_UNDO_STEPS = 5;
 
 type Point = { x: number; y: number };
 
@@ -26,9 +31,11 @@ function getPoint(
   clientY: number,
 ): Point {
   const rect = canvas.getBoundingClientRect();
+  const sx = canvas.width / rect.width;
+  const sy = canvas.height / rect.height;
   return {
-    x: clientX - rect.left,
-    y: clientY - rect.top,
+    x: (clientX - rect.left) * sx,
+    y: (clientY - rect.top) * sy,
   };
 }
 
@@ -63,7 +70,8 @@ export function MangaStudio() {
   const [brushPreset, setBrushPreset] = useState<MangaBrushPreset>("g-pen");
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [twoPageView, setTwoPageView] = useState(false);
-  const [pageFrameSize, setPageFrameSize] = useState({ width: 0, height: 0 });
+  /** View scale: 1 = sheet shown at native 3840×… CSS px (scroll/zoom workspace). */
+  const [zoom, setZoom] = useState(0.42);
   const [panelTemplate, setPanelTemplate] = useState<PanelTemplateId>("off");
   const [historyDepth, setHistoryDepth] = useState(0);
   const [redoDepth, setRedoDepth] = useState(0);
@@ -87,12 +95,9 @@ export function MangaStudio() {
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    const w = canvas.width / dpr;
-    const h = canvas.height / dpr;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.fillStyle = "#ffffff";
-    ctx.fillRect(0, 0, w, h);
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
   }, []);
 
   const loadPageData = useCallback(
@@ -108,6 +113,8 @@ export function MangaStudio() {
       const image = new Image();
       image.onload = () => {
         fillBlankPage();
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = "high";
         ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
       };
       image.src = pageData;
@@ -132,6 +139,9 @@ export function MangaStudio() {
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
     history.current.push(ctx.getImageData(0, 0, canvas.width, canvas.height));
+    while (history.current.length > MAX_CANVAS_UNDO_STEPS) {
+      history.current.shift();
+    }
     redoHistory.current = [];
     setHistoryDepth(history.current.length);
     setRedoDepth(0);
@@ -175,64 +185,50 @@ export function MangaStudio() {
     });
   }, [currentPage]);
 
-  const fitCanvas = useCallback(() => {
-    const outer = outerRef.current;
+  const syncDisplaySize = useCallback(() => {
     const wrap = wrapRef.current;
     const canvas = canvasRef.current;
     if (!wrap || !canvas) return;
-    const previousData = canvas.width > 0 ? canvas.toDataURL("image/png") : "";
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const zw = MANGA_PAGE_PIXEL_WIDTH * zoom;
+    const zh = MANGA_PAGE_PIXEL_HEIGHT * zoom;
+    canvas.style.width = `${zw}px`;
+    canvas.style.height = `${zh}px`;
+    wrap.style.width = `${zw}px`;
+    wrap.style.height = `${zh}px`;
+  }, [zoom]);
 
-    const fullOuterW = Math.max(
-      200,
-      Math.floor(outer?.getBoundingClientRect().width ?? wrap.clientWidth ?? 480),
-    );
-    const outerW = fullOuterW;
-    let w = outerW;
-    let h = Math.floor(w * MANGA_PAGE_ASPECT);
-    const maxH = Math.floor(window.innerHeight * 0.82);
-    if (h > maxH) {
-      h = maxH;
-      w = Math.floor(h / MANGA_PAGE_ASPECT);
+  const ensureFixedBitmap = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return false;
+    if (
+      canvas.width === MANGA_PAGE_PIXEL_WIDTH &&
+      canvas.height === MANGA_PAGE_PIXEL_HEIGHT
+    ) {
+      return false;
     }
-
-    wrap.style.width = `${w}px`;
-    wrap.style.height = `${h}px`;
-    setPageFrameSize({ width: w, height: h });
-
-    canvas.width = Math.floor(w * dpr);
-    canvas.height = Math.floor(h * dpr);
-    canvas.style.width = `${w}px`;
-    canvas.style.height = `${h}px`;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+    const previousData =
+      canvas.width > 0 && canvas.height > 0 ? canvas.toDataURL("image/png") : "";
+    canvas.width = MANGA_PAGE_PIXEL_WIDTH;
+    canvas.height = MANGA_PAGE_PIXEL_HEIGHT;
     if (previousData) {
       loadPageData(previousData);
     } else {
       fillBlankPage();
     }
     resetHistory();
+    return true;
   }, [fillBlankPage, loadPageData, resetHistory]);
 
   useEffect(() => {
-    fitCanvas();
-    window.addEventListener("resize", fitCanvas);
-    return () => window.removeEventListener("resize", fitCanvas);
-  }, [fitCanvas]);
-
-  useEffect(() => {
-    const outer = outerRef.current;
-    if (!outer) return;
-    const ro = new ResizeObserver(() => fitCanvas());
-    ro.observe(outer);
-    return () => ro.disconnect();
-  }, [fitCanvas]);
+    ensureFixedBitmap();
+    syncDisplaySize();
+  }, [ensureFixedBitmap, syncDisplaySize]);
 
   useEffect(() => {
     const syncFullscreen = () => {
       const root = studioRootRef.current;
       setIsFullscreen(!!root && getFullscreenElement() === root);
-      requestAnimationFrame(() => fitCanvas());
+      requestAnimationFrame(() => syncDisplaySize());
     };
     document.addEventListener("fullscreenchange", syncFullscreen);
     document.addEventListener("webkitfullscreenchange", syncFullscreen);
@@ -240,7 +236,7 @@ export function MangaStudio() {
       document.removeEventListener("fullscreenchange", syncFullscreen);
       document.removeEventListener("webkitfullscreenchange", syncFullscreen);
     };
-  }, [fitCanvas]);
+  }, [syncDisplaySize]);
 
   const toggleFullscreen = useCallback(async () => {
     const el = studioRootRef.current;
@@ -270,8 +266,8 @@ export function MangaStudio() {
 
     if (prevPageIndexRef.current >= 0) {
       pageHistoryStore.current[prevPageIndexRef.current] = {
-        undo: cloneImageDataStack(history.current),
-        redo: cloneImageDataStack(redoHistory.current),
+        undo: cloneImageDataStack(history.current).slice(-MAX_CANVAS_UNDO_STEPS),
+        redo: cloneImageDataStack(redoHistory.current).slice(-MAX_CANVAS_UNDO_STEPS),
       };
     }
 
@@ -279,8 +275,12 @@ export function MangaStudio() {
 
     const stored = pageHistoryStore.current[currentPage];
     if (stored) {
-      history.current = cloneImageDataStack(stored.undo);
-      redoHistory.current = cloneImageDataStack(stored.redo);
+      history.current = cloneImageDataStack(stored.undo).slice(
+        -MAX_CANVAS_UNDO_STEPS,
+      );
+      redoHistory.current = cloneImageDataStack(stored.redo).slice(
+        -MAX_CANVAS_UNDO_STEPS,
+      );
     } else {
       history.current = [];
       redoHistory.current = [];
@@ -327,13 +327,10 @@ export function MangaStudio() {
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
       const cfg = MANGA_BRUSH_CONFIG[brushPreset];
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
-      const lineWidth = Math.min(
-        72,
-        Math.max(0.35, brush * cfg.widthMult),
-      );
+      const baseStroke = brush * cfg.widthMult * (MANGA_PX_PER_MM / 6);
+      const lineWidth = Math.min(220, Math.max(0.5, baseStroke));
       ctx.save();
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.globalAlpha = cfg.alpha;
       ctx.globalCompositeOperation = cfg.composite;
       ctx.strokeStyle = resolveStrokeStyle(brushPreset, color);
@@ -403,6 +400,8 @@ export function MangaStudio() {
 
   const presetMeta = MANGA_BRUSH_CONFIG[brushPreset];
   const nextPageData = pages[currentPage + 1] ?? "";
+  const displayW = MANGA_PAGE_PIXEL_WIDTH * zoom;
+  const displayH = MANGA_PAGE_PIXEL_HEIGHT * zoom;
 
   return (
     <div
@@ -562,9 +561,51 @@ export function MangaStudio() {
         </div>
       </div>
 
+      <div className="flex flex-wrap items-center gap-3 rounded-xl border border-zinc-600/40 bg-zinc-900/60 px-4 py-3">
+        <span className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+          View zoom
+        </span>
+        <input
+          type="range"
+          min={0.08}
+          max={2.5}
+          step={0.02}
+          value={zoom}
+          onChange={(e) => setZoom(Number(e.target.value))}
+          className="h-2 w-[min(100%,220px)] accent-amber-400"
+          aria-label="Canvas view zoom"
+        />
+        <span className="min-w-[3.5rem] tabular-nums text-sm text-zinc-300">
+          {Math.round(zoom * 100)}%
+        </span>
+        <button
+          type="button"
+          onClick={() => setZoom(0.42)}
+          className="rounded-md border border-zinc-600 px-3 py-1.5 text-xs font-medium text-zinc-200 hover:border-zinc-500 hover:bg-zinc-800"
+        >
+          Reset view
+        </button>
+        <p className="text-xs text-zinc-500">
+          Scroll the stage to pan. Hold Ctrl (or ⌘) and scroll to zoom in or out.
+        </p>
+      </div>
+
       <div className="rounded-2xl bg-zinc-800/50 p-5 ring-1 ring-zinc-600/30 sm:p-8">
-        <div className="overflow-x-auto">
-          <div className={`mx-auto flex w-fit items-start justify-start gap-5 ${twoPageView ? "lg:gap-8" : ""}`}>
+        <div
+          className="max-h-[min(88dvh,920px)] w-full overflow-auto overscroll-contain rounded-xl border border-zinc-700/50 bg-zinc-950/30 p-4 sm:p-6"
+          onWheel={(e) => {
+            if (!e.ctrlKey && !e.metaKey) return;
+            e.preventDefault();
+            setZoom((z) => {
+              const factor = e.deltaY > 0 ? 0.9 : 1.1;
+              const next = z * factor;
+              return Math.min(2.5, Math.max(0.08, next));
+            });
+          }}
+        >
+          <div
+            className={`mx-auto flex w-fit min-w-min items-start justify-start gap-5 ${twoPageView ? "lg:gap-8" : ""}`}
+          >
           <div
             ref={outerRef}
             className="flex w-full justify-center"
@@ -621,8 +662,8 @@ export function MangaStudio() {
             <div
               className="w-fit shrink-0 overflow-hidden rounded-lg border border-zinc-600/60 bg-zinc-900/80 shadow-2xl shadow-black/35"
               style={{
-                width: `${pageFrameSize.width}px`,
-                height: `${pageFrameSize.height}px`,
+                width: `${displayW}px`,
+                height: `${displayH}px`,
               }}
             >
               {nextPageData ? (
@@ -643,10 +684,12 @@ export function MangaStudio() {
         </div>
       </div>
       <p className="text-xs text-zinc-500">
-        Page shape matches a B4-style trim sheet ({MANGA_B4_TRIM_MM.width}×
-        {MANGA_B4_TRIM_MM.height} mm). Dashed box ≈ live artwork area (
-        {MANGA_LIVE_AREA_MM.width}×{MANGA_LIVE_AREA_MM.height} mm). Use Prev/Next
-        for more pages; export PNG per page.
+        Pixel sheet: {MANGA_PAGE_PIXEL_WIDTH}×{MANGA_PAGE_PIXEL_HEIGHT} (same
+        proportions as B4 trim {MANGA_B4_TRIM_MM.width}×{MANGA_B4_TRIM_MM.height}{" "}
+        mm). Dashed overlay ≈ live area ({MANGA_LIVE_AREA_MM.width}×
+        {MANGA_LIVE_AREA_MM.height} mm). PNG export uses full pixel resolution.
+        Undo keeps the last {MAX_CANVAS_UNDO_STEPS} steps at this size to save
+        memory.
         {isFullscreen ? " Press Esc to exit fullscreen." : ""}
       </p>
     </div>

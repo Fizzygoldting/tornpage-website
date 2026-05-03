@@ -15,3 +15,16 @@ export const MANGA_LIVE_AREA_MM = {
 /** Portrait page height ÷ width — use for layout + canvas pixel ratio. */
 export const MANGA_PAGE_ASPECT =
   MANGA_B4_TRIM_MM.height / MANGA_B4_TRIM_MM.width;
+
+/**
+ * Fixed “4K-class” trim width in device pixels (pixel-accurate sheet; not CSS mm).
+ * Height follows B4 trim aspect so guides and export stay proportional.
+ */
+export const MANGA_PAGE_PIXEL_WIDTH = 3840;
+export const MANGA_PAGE_PIXEL_HEIGHT = Math.round(
+  MANGA_PAGE_PIXEL_WIDTH * MANGA_PAGE_ASPECT,
+);
+
+/** Pixels per mm on the trim sheet — for stroke widths that feel consistent on paper. */
+export const MANGA_PX_PER_MM =
+  MANGA_PAGE_PIXEL_WIDTH / MANGA_B4_TRIM_MM.width;

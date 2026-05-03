@@ -10,6 +10,15 @@ export type MangaBrowseCard = {
   views: string;
 };
 
+/** Covers served from `public/custom-user-manga/` (add files locally to match each `coverSrc`). */
+export function isCustomUserMangaCard(card: MangaBrowseCard): boolean {
+  return Boolean(card.coverSrc?.startsWith("/custom-user-manga/"));
+}
+
+export function customUserMangaCards(): MangaBrowseCard[] {
+  return MANGA_BROWSE_CARDS.filter(isCustomUserMangaCard);
+}
+
 export const MANGA_BROWSE_CARDS: MangaBrowseCard[] = [
   {
     title: "Kagurabachi",

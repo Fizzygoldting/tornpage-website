@@ -93,7 +93,7 @@ export default function ReadPage() {
         </div>
       </section>
 
-        <section className="mt-12">
+        <section className="mt-12" id="saved">
         <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
           <h2 className="text-2xl font-semibold text-zinc-100">
             Saved / Bookmarked Manga
